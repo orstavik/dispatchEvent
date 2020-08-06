@@ -1,0 +1,49 @@
+<script src="hasGetEventListeners.js"></script>
+<script>
+  function getPath(target) {
+    const path = [];
+    while (target.parentNode !== null) {
+      path.push(target);
+      target = target.parentNode;
+    }
+    path.push(document, window);
+    return path;
+  }
+
+  function callListenersOnElement(currentTarget, event, phase) {
+    const listeners = currentTarget.getEventListeners(event.type, phase);
+    if (!listeners)
+      return;
+    for (let listener of listeners)
+      listener.listener(event);
+  }
+
+  function dispatchEvent(target, event) {
+    const propagationPath = getPath(target).slice(1);
+    for (let currentTarget of propagationPath.slice().reverse())
+      callListenersOnElement(currentTarget, event, Event.CAPTURING_PHASE);
+    callListenersOnElement(target, event, Event.AT_TARGET);
+    for (let currentTarget of propagationPath)
+      callListenersOnElement(currentTarget, event, Event.BUBBLING_PHASE);
+  }
+</script>
+
+<div>
+  <h1>Hello sunshine</h1>
+</div>
+
+<script>
+  let counter = 0;
+  function log(e){
+    console.log(e.type + counter++);
+  }
+
+  const h1 = document.querySelector("h1");
+  const div = document.querySelector("div");
+
+  div.addEventListener("click", log, true);
+  h1.addEventListener("click", log);
+  div.addEventListener("click", log);
+
+  dispatchEvent(h1, new MouseEvent("click", {bubbles: true}));
+</script>

@@ -1,0 +1,20 @@
+<div id="outer">
+  <h1 id="inner">Click me!</h1>
+</div>
+
+<script>
+  function log(e) {
+    const thisTarget = e.currentTarget.id;
+    console.log(e.type + " on #" + thisTarget + " phase: " + e.eventPhase);
+  }
+
+  const inner = document.querySelector("#inner");
+  const outer = document.querySelector("#outer");
+
+  outer.addEventListener("click", log, true);
+  inner.addEventListener("click", log, true);
+  inner.addEventListener("click", log);
+  outer.addEventListener("click", log);
+
+  inner.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+</script>

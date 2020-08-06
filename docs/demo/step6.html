@@ -1,0 +1,81 @@
+<script src="hasGetEventListeners.js"></script>
+<script>
+  function getComposedPath(target, composed) {
+    const path = [];
+    while (true) {
+      path.push(target);
+      if (target.parentNode) {
+        target = target.parentNode;
+      } else if (target.host) {
+        if (!composed)
+          return path;
+        target = target.host;
+      } else if (target.defaultView) {
+        target = target.defaultView;
+      } else {
+        break;
+      }
+    }
+    return path;
+  }
+
+  function callListenersOnElement(currentTarget, event, phase) {
+    const listeners = currentTarget.getEventListeners(event.type, phase);
+    if (!listeners)
+      return;
+    Object.defineProperty(event, "currentTarget", {value: currentTarget, writable: true});
+    for (let listener of listeners)
+      if (currentTarget.hasEventListener(event.type, listener.listener, listener.capture))
+        listener.listener(event);
+  }
+
+  function dispatchEvent(target, event) {
+    const propagationPath = getComposedPath(target, event.composed).slice(1);
+    Object.defineProperty(event, "target", {
+      get: function () {
+        let lowest = target;
+        for (let t of propagationPath) {
+          if (t === this.currentTarget)
+            return lowest;
+          if (t instanceof DocumentFragment && t.mode === "closed")
+            lowest = t.host || lowest;
+        }
+      }
+    });
+    for (let currentTarget of propagationPath.slice().reverse())
+      callListenersOnElement(currentTarget, event, Event.CAPTURING_PHASE);
+    callListenersOnElement(target, event, Event.AT_TARGET);
+    for (let currentTarget of propagationPath)
+      callListenersOnElement(currentTarget, event, Event.BUBBLING_PHASE);
+  }
+
+</script>
+
+<hello-sunshine></hello-sunshine>
+
+<script>
+  let sunshineTarget;
+
+  class HelloSunshine extends HTMLElement {
+    constructor() {
+      super();
+      this.shadow = this.attachShadow({mode: "closed"});
+      this.shadow.innerHTML = `<h1>hello sunshine</h1>`;
+      this.shadow.addEventListener("click", e => console.log(e.target.tagName));
+      sunshineTarget = this.shadow.children[0];     //this is a hack, so we can click on the closed content
+    }
+  }
+
+  customElements.define("hello-sunshine", HelloSunshine);
+
+  function log(e) {
+    console.log(e.target);
+  }
+
+  const hello = document.querySelector("hello-sunshine");
+
+  hello.addEventListener("click", e => console.log(e.target.tagName));
+
+  dispatchEvent(sunshineTarget, new MouseEvent("click", {composed: true, bubbles: true}));
+  dispatchEvent(sunshineTarget, new MouseEvent("click", {bubbles: true}));
+</script>

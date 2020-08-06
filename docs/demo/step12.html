@@ -1,0 +1,126 @@
+<script src="hasGetEventListeners.js"></script>
+<script>
+  function toggleTick(cb) {
+    const details = document.createElement("details");
+    details.style.display = "none";
+    details.ontoggle = cb;
+    document.body.appendChild(details);
+    details.open = true;
+    Promise.resolve().then(details.remove.bind(details));
+    return {
+      cancel: function () {
+        details.ontoggle = undefined;
+      },
+      resume: function () {
+        details.ontoggle = cb;
+      }
+    };
+  }
+
+  function getComposedPath(target, composed) {
+    const path = [];
+    while (true) {
+      path.push(target);
+      if (target.parentNode) {
+        target = target.parentNode;
+      } else if (target.host) {
+        if (!composed)
+          return path;
+        target = target.host;
+      } else if (target.defaultView) {
+        target = target.defaultView;
+      } else {
+        break;
+      }
+    }
+    return path;
+  }
+
+  function callNextListenerAsync(event, roundTripPath, targetIndex, listeners) {
+    if (event.cancelBubble || event._propagationStoppedImmediately || (event.eventPhase === Event.BUBBLING_PHASE && !event.bubbles))
+      return;
+    if (!listeners) {
+      let phase = Event.CAPTURING_PHASE;
+      if (roundTripPath.length === targetIndex)
+        phase = Event.AT_TARGET;
+      if (roundTripPath.length < targetIndex)
+        phase = Event.BUBBLING_PHASE;
+      const currentTarget = roundTripPath.shift();
+      Object.defineProperties(event, {
+        "eventPhase": {value: phase, writable: true},
+        "currentTarget": {value: currentTarget, writable: true}
+      });
+      listeners = event.currentTarget.getEventListeners(event.type, event.eventPhase);
+    }
+    while (listeners && listeners.length) {
+      const listener = listeners.shift();
+      if (!event.currentTarget.hasEventListener(event.type, listener.listener, listener.capture))
+        return;
+      try {
+        listener.listener(event);
+      } catch (err) {
+        const error = new ErrorEvent(
+          'error',
+          {error: err, message: 'Uncaught Error: event listener break down'}
+        );
+        window.dispatchEvent(error);
+        if (!error.defaultPrevented)
+          console.error(error);
+      }
+      if (listeners.length)
+        return toggleTick(callNextListenerAsync.bind(null, event, roundTripPath, targetIndex, listeners));
+    }
+    if (roundTripPath.length)
+      toggleTick(callNextListenerAsync.bind(null, event, roundTripPath, targetIndex, undefined));
+  }
+
+  function dispatchEventAsync(target, event) {
+    Object.defineProperties(event, {
+      "target": {
+        get: function () {
+          let lowest = target;
+          for (let t of propagationPath) {
+            if (t === this.currentTarget)
+              return lowest;
+            if (t instanceof DocumentFragment && t.mode === "closed")
+              lowest = t.host || lowest;
+          }
+        }
+      },
+      "stopImmediatePropagation": {
+        value: function () {
+          this._propagationStoppedImmediately = true;
+        }
+      }
+    });
+    const propagationPath = getComposedPath(target, event.composed);
+    const roundTripPath = propagationPath.slice().reverse().concat(propagationPath.slice(1));
+    toggleTick(callNextListenerAsync.bind(null, event, roundTripPath, propagationPath.length, undefined));
+  }
+</script>
+
+<div id="outer">
+  <h1 id="inner">Click me!</h1>
+</div>
+
+<script>
+  function log(e) {
+    const thisTarget = e.currentTarget.id;
+    console.log(e.type + " on #" + thisTarget);
+    Promise.resolve().then(function () {
+      console.log("microtask from #" + thisTarget);
+      Promise.resolve().then(() => {
+        console.log("nested microtask from #" + thisTarget);
+      });
+    });
+  }
+
+  const inner = document.querySelector("#inner");
+  const outer = document.querySelector("#outer");
+
+  inner.addEventListener("click", log);
+  inner.addEventListener("click", log.bind({}));
+  outer.addEventListener("click", log);
+
+  dispatchEventAsync(inner, new MouseEvent("click", {bubbles: true}));
+</script>

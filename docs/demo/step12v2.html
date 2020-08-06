@@ -1,0 +1,132 @@
+<script src="hasGetEventListeners.js"></script>
+<script src="../../1b_EventLoop/v2demo/nextTick.js"></script>
+
+<script>
+  //todo the getComposedPath is not fully tested..
+  function getComposedPath(target, composed) {
+    const path = [];
+    while (true) {
+      path.push(target);
+      const shadowRoot = target.parentNode.shadowRoot;
+      if (shadowRoot){
+        const slotName = target.getAttribute("slot")|| "";
+        target = shadowRoot.querySelector(!slotName? "slot:not([name]), slot[name='']":"slot[name="+slotName+"]");
+        continue;
+      }
+      if (target.parentNode) {
+        target = target.parentNode;
+      } else if (target.host) {
+        if (!composed)
+          return path;
+        target = target.host;
+      } else if (target.defaultView) {
+        target = target.defaultView;
+      } else {
+        break;
+      }
+    }
+    return path;
+  }
+
+  async function callListenersOnElement(currentTarget, event, phase, macrotask) {
+    if (event.cancelBubble || event._propagationStoppedImmediately || (phase === Event.BUBBLING_PHASE && !event.bubbles))
+      return;
+    const listeners = currentTarget.getEventListeners(event.type, phase);
+    if (!listeners)
+      return;
+    Object.defineProperty(event, "currentTarget", {value: currentTarget, writable: true});
+    const wrappedListeners = listeners.map(listener => {
+      const og = listener.listener;
+      return function () {
+        if (event._propagationStoppedImmediately)
+          return;
+        if (!currentTarget.hasEventListener(event.type, og, listener.capture))
+          return;
+        try {
+          og(event);
+        } catch (err) {
+          const error = new ErrorEvent(
+            'error',
+            {error: err, message: 'Uncaught Error: event listener break down'}
+          );
+          dispatchEvent(window, error);
+          if (!error.defaultPrevented)
+            console.error(error);
+        }
+      };
+    });
+    return macrotask.nextMesoTick(wrappedListeners);
+  }
+
+  async function dispatchEvent(target, event) {
+    // if (!target.isConnected)
+    //   return;
+    const propagationPath = getComposedPath(target, event.composed).slice(1);
+    Object.defineProperties(event, {
+      "target": {
+        get: function () {
+          let lowest = target;
+          for (let t of propagationPath) {
+            if (t === this.currentTarget)
+              return lowest;
+            if (t instanceof DocumentFragment && t.mode === "closed")
+              lowest = t.host || lowest;
+          }
+        }
+      },
+      "stopImmediatePropagation": {
+        value: function () {
+          this._propagationStoppedImmediately = true;
+        }
+      }
+    });
+    const reverse = propagationPath.slice().reverse();
+    let mesotaskDepth = event.bubbles ? (propagationPath.length * 2) + 1 : propagationPath.length + 1;
+    let macrotask = nextMesoTicks([function () {
+    }], mesotaskDepth + 1);//todo hack.. problem initiating without knowing the tasks
+    Object.defineProperty(event, "eventPhase", {
+      value: Event.CAPTURING_PHASE,
+      writable: true
+    });
+    for (let currentTarget of reverse) {
+      await callListenersOnElement(currentTarget, event, Event.CAPTURING_PHASE, macrotask);
+    }
+    Object.defineProperty(event, "eventPhase", {
+      value: Event.AT_TARGET,
+      writable: true
+    });
+    await callListenersOnElement(target, event, Event.AT_TARGET, macrotask);
+    if (!event.bubbles)
+      return;
+    Object.defineProperty(event, "eventPhase", {
+      value: Event.BUBBLING_PHASE,
+      writable: true
+    });
+    for (let currentTarget of propagationPath)
+      await callListenersOnElement(currentTarget, event, Event.BUBBLING_PHASE, macrotask);
+  }
+</script>
+
+<div id="outer">
+  <h1 id="inner">Click me!</h1>
+</div>
+
+<script>
+  function log(e) {
+    const msg = e.type + " on #" + e.currentTarget.id + " phase: " + e.eventPhase;
+    console.log(msg);
+    Promise.resolve().then(() => {
+      console.log("microtask", msg);
+    });
+  }
+
+  const inner = document.querySelector("#inner");
+  const outer = document.querySelector("#outer");
+
+  outer.addEventListener("click", log, true);
+  inner.addEventListener("click", log, true);
+  inner.addEventListener("click", log);
+  outer.addEventListener("click", log);
+
+  dispatchEvent(inner, new MouseEvent("click", {bubbles: true}));
+</script>

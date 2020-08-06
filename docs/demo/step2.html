@@ -1,0 +1,49 @@
+<script src="hasGetEventListeners.js"></script>
+<script>
+  function getPath(target) {
+    const path = [];
+    while (target.parentNode !== null) {
+      path.push(target);
+      target = target.parentNode;
+    }
+    path.push(document, window);
+    return path;
+  }
+
+  function callListenersOnElement(currentTarget, event, phase) {
+    const listeners = currentTarget.getEventListeners(event.type, phase);
+    if (!listeners)
+      return;
+    Object.defineProperty(event, "currentTarget", {value: currentTarget, writable: true});
+    for (let listener of listeners)
+      listener.listener(event);
+  }
+
+  function dispatchEvent(target, event) {
+    Object.defineProperty(event, "target", {value: target});
+    const propagationPath = getPath(target).slice(1);
+    for (let currentTarget of propagationPath.slice().reverse())
+      callListenersOnElement(currentTarget, event, Event.CAPTURING_PHASE);
+    callListenersOnElement(target, event, Event.AT_TARGET);
+    for (let currentTarget of propagationPath)
+      callListenersOnElement(currentTarget, event, Event.BUBBLING_PHASE);
+  }
+</script>
+
+<div id="outer">
+  <h1 id="inner">Click on me!</h1>
+</div>
+
+<script>
+  function log(e) {
+    console.log(e.type, e.currentTarget.id, e.target.id);
+  }
+
+  const inner = document.querySelector("#inner");
+  const outer = document.querySelector("#outer");
+
+  inner.addEventListener("click", log);
+  outer.addEventListener("click", log);
+
+  dispatchEvent(inner, new MouseEvent("click", {bubbles: true}));
+</script>

@@ -1,0 +1,20 @@
+<div id="outer">
+  <h1 id="inner">Click on me!</h1>
+</div>
+
+<script>
+  function log(e) {
+    const phase = e.eventPhase === 1 ? "CAPTURE" : e.eventPhase === 2 ? "TARGET" : "BUBBLE";
+    console.log(e.type + " bubbles = " + e.bubbles + " on #" + e.currentTarget.tagName + " - " + phase);
+  }
+
+  const inner = document.querySelector("#inner");
+  const outer = document.querySelector("#outer");
+
+  outer.addEventListener("click", log, true);     //yes, capture phase is run when bubbles: false
+  inner.addEventListener("click", log, true);     //yes
+  inner.addEventListener("click", log);           //yes, at_target phase
+  outer.addEventListener("click", log);           //no, bubbles: false
+
+  inner.dispatchEvent(new MouseEvent("click", {bubbles: false}));
+</script>

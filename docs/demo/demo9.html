@@ -1,0 +1,22 @@
+<h1>Click on me!</h1>
+
+<script>
+  function log(e) {
+    console.log(e.type + " on #" + e.currentTarget.tagName);
+  }
+
+  function stopImmediately(e) {
+    e.stopImmediatePropagation();
+    console.log(e.type + ".stopImmediatePropagation();");
+  }
+
+  const h1 = document.querySelector("h1");
+
+  document.body.addEventListener("click", log, true);    //yes
+  h1.addEventListener("click", log);                  //yes
+  h1.addEventListener("click", stopImmediately);      //yes
+  h1.addEventListener("click", log.bind({}));         //no
+  document.body.addEventListener("click", log);          //no
+
+  h1.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+</script>
