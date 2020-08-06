@@ -1,5 +1,8 @@
 import {computePropagationPath, scopedPaths} from "./computePaths.js";
-import {addGetEventListeners_allOptions} from "https://cdn.jsdelivr.net/gh/orstavik/getEventListeners@1.0.2/src/getEventListeners_allOptions.js";
+import {
+  addGetEventListeners_allOptions,
+  removeGetEventListeners_allOptions
+} from "https://cdn.jsdelivr.net/gh/orstavik/getEventListeners@1.1.2/src/getEventListeners_allOptions.js";
 import {} from "https://cdn.jsdelivr.net/gh/orstavik/nextTick@1/src/nextTick.js";
 
 let isStopped, getEventListeners;
@@ -112,14 +115,16 @@ async function dispatchEvent(event, options) {
   }
 }
 
-export function addDispatchEventOptionAsync(EventTargetPrototype = EventTarget.prototype, isStoppedImpl, getEventListenersImpl) {
-  isStopped = isStoppedImpl;                    //todo || window.isStopped;
-  getEventListeners = getEventListenersImpl;    //todo || window.getEventListeners;
-  Object.defineProperty(EventTargetPrototype, "dispatchEvent", {value: dispatchEvent});
+let dispatchEventOG;
+export function addDispatchEventOptionAsyncWithDependencies() {
+  const {isStopped: is, getEventListeners: gel} = addGetEventListeners_allOptions();
+  isStopped = is;
+  getEventListeners = gel;
+  dispatchEventOG = Object.getOwnPropertyDescriptor(EventTarget.prototype, "dispatchEvent");
+  Object.defineProperty(EventTarget.prototype, "dispatchEvent", {value: dispatchEvent});
 }
 
-
-export function addDispatchEventOptionAsyncWithDependencies(EventTargetPrototype = EventTarget.prototype) {
-  const {getEventListeners, isStopped} = addGetEventListeners_allOptions(true); //isScoped is set as default
-  addDispatchEventOptionAsync(EventTargetPrototype, isStopped, getEventListeners);
+export function removeDispatchEventOptionAsyncWithDependencies() {
+  Object.defineProperty(EventTarget.prototype, "dispatchEvent", dispatchEventOG);
+  removeGetEventListeners_allOptions();
 }
