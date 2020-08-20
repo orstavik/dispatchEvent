@@ -1,20 +1,4 @@
 <script>
-  const addEventListenerOG = EventTarget.prototype.addEventListener;
-  const removeEventListenerOG = EventTarget.prototype.removeEventListener;
-  const stopPropOG = Event.prototype.stopPropagation;
-  const stopImmediateOG = Event.prototype.stopImmediatePropagation;
-  const dispatchEventOG = EventTarget.prototype.dispatchEvent;
-
-  function resetSystem() {
-    EventTarget.prototype.dispatchEvent = dispatchEventOG;
-    EventTarget.prototype.addEventListener = addEventListenerOG;
-    EventTarget.prototype.removeEventListener = removeEventListenerOG;
-    Event.prototype.stopPropagation = stopPropOG;
-    Event.prototype.stopImmediatePropagation = stopImmediateOG;
-    window.getEventListeners = undefined;
-    window.isStopped = undefined;
-  }
-
   function nextTick2(cb) {
     let r;
     const p = new Promise(function (resolve) {
@@ -54,26 +38,36 @@
             (result === expected && result === native) ? null :
               (result === expected) ? 1 :
                 (result === native) ? undefined :
-                  result;
+                  result + " != " + expected;
       }
     }
     console.table(results);
   }
 
+  function eventName(event) {
+    if (!event)
+      return "";
+    return " " + event.type + "+" +
+      (event.async ? 'A' : '') +
+      (event.bubbles ? 'B' : '') +
+      (event.composed ? 'C' : '');
+  }
+
   async function runTest2(eventSystems, test, usecasesExpects) {
     const {name: testName, fun} = test;
     const results = {};
-    for (let system of eventSystems) {
+    for (let [system, resetSystem] of eventSystems) {
       system();
       for (let i = 0; i < usecasesExpects.length; i++) {
         let [usecase, expected, event] = usecasesExpects[i];
+        let name = testName + ":" + usecase.name + eventName(event);
 
-        setValue(results, testName + ":" + usecase.name, "expected", expected);
+        setValue(results, name, "expected", expected);
 
         let result = [];
         fun(result, usecase, event);
         await nextTick2(() => 1);  //just wait a t1ck, for any queued propagation to complete
-        setValue(results, testName + ":" + usecase.name, system.name, result.join(""));
+        setValue(results, name, system.name, result.join(""));
         await nextTick2(() => 1);  //just wait a t0ck, for any queued tasks of the propagation to complete
       }
       resetSystem();
@@ -87,8 +81,8 @@
 <script type="module">
 
   import {
-    addDispatchEventOptionAsync,
-    addDispatchEventOptionAsyncWithDependencies
+    addDispatchEventOptionAsyncWithDependencies,
+    removeDispatchEventOptionAsyncWithDependencies
   } from "../src/dispatchEventOptionAsync.js";
   import {scopedPaths} from "../src/computePaths.js";
 
@@ -96,9 +90,15 @@
     window.scopedPaths = scopedPaths;
   }
 
+  function REMOVE_SCOPED_PATHS() {
+    delete window.scopedPaths;
+  }
+
+  function NATIVE() {
+  }
+
   const eventSystems = [
-    function NATIVE() {
-    },
+    [NATIVE, NATIVE],
     // function DISPATCH_REGISTER_SYNCONLY() {//neither last nor unstoppable  //todo
     //   addDispatchEventOptionAsyncWithDependencies()
     // },
@@ -108,21 +108,11 @@
     // function DISPATCH_REGISTER_SYNCONLY() {//unstoppable, but not last     //todo
     //   addDispatchEventOptionAsyncWithDependencies()
     // },
-    function DISPATCH_REGISTER() {
-      addDispatchEventOptionAsyncWithDependencies();
-    }];
+    [addDispatchEventOptionAsyncWithDependencies, removeDispatchEventOptionAsyncWithDependencies]
+  ];
 
   import {testScopedPaths, testComposedPath} from "./testPaths.js";
-  import {
-    propBC,
-    propB,
-    propC,
-    prop,
-    propABC,
-    propAB,
-    propAC,
-    propA,
-  } from "./testPropagationBasic.js";
+  import {prop, dispatchEventTwice} from "./testPropagationBasic.js";
 
   import {
     h1,
@@ -134,7 +124,7 @@
   } from "./useCase1.js";
 
   (async function () {
-    await runTest2([SCOPED_PATHS], testScopedPaths, [
+    await runTest2([[SCOPED_PATHS, REMOVE_SCOPED_PATHS]], testScopedPaths, [
       [h1, ""],
       [webcomp, ""],
       [shadowSlotted, ""],
@@ -143,7 +133,7 @@
       [nestedShadow, ""]
     ]);
 
-    await runTest2([SCOPED_PATHS], testComposedPath, [
+    await runTest2([[SCOPED_PATHS, REMOVE_SCOPED_PATHS]], testComposedPath, [
       [h1, ""],
       [webcomp, ""],
       [shadowSlotted, ""],
@@ -152,74 +142,81 @@
       [nestedShadow, ""]
     ]);
 
-    await runTest2(eventSystems, propBC, [
-      [h1, "H1 h1 "],
-      [webcomp, "SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp#root shadow-comp "],
-      [shadowSlotted, "DIV SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp#root shadow-comp slot span slot-comp#root slot-comp div "],
-      [simpleMatroschka, "MATROSCHKA-COMP MATROSCHKA-COMP#ROOT SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SLOT DIV div slot slot span slot-comp#root slot-comp matroschka-comp#root matroschka-comp "],
-      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP DIV div shadow-comp "],
-      [nestedShadow, "NESTED-SHADOW NESTED-SHADOW#ROOT B SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp#root shadow-comp b nested-shadow#root nested-shadow "]
+    function newClick(options) {
+      const click = new MouseEvent("click", options);
+      options?.async && Object.defineProperty(click, "async", {value: true});
+      return click;
+    }
+
+    await runTest2(eventSystems, dispatchEventTwice, [
+      [h1, "click click ", newClick()],
     ]);
 
-    await runTest2(eventSystems, propC, [
-      [h1, "H1 h1 "],
-      [webcomp, "SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp "],
-      [shadowSlotted, "DIV SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp "],
-      [simpleMatroschka, "MATROSCHKA-COMP MATROSCHKA-COMP#ROOT SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SLOT DIV div "],
-      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP DIV div "],
-      [nestedShadow, "NESTED-SHADOW NESTED-SHADOW#ROOT B SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp nested-shadow "]
-    ]);
-
-    await runTest2(eventSystems, propB, [
-      [h1, "H1 h1 "],
-      [webcomp, "SHADOW-COMP#ROOT H1 h1 shadow-comp#root "],
-      [shadowSlotted, "SHADOW-COMP#ROOT H1 h1 shadow-comp#root "],
-      [simpleMatroschka, "MATROSCHKA-COMP MATROSCHKA-COMP#ROOT SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SLOT DIV div slot slot span slot-comp#root slot-comp matroschka-comp#root matroschka-comp "],
-      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP DIV div shadow-comp "],
-      [nestedShadow, "SHADOW-COMP#ROOT H1 h1 shadow-comp#root "]
-    ]);
+    const ABC = {async: true, bubbles: true, composed: true};
+    const AB = {async: true, bubbles: true};
+    const AC = {async: true, composed: true};
+    const A = {async: true};
+    const BC = {bubbles: true, composed: true};
+    const B = {bubbles: true};
+    const C = {composed: true};
 
     await runTest2(eventSystems, prop, [
-      [h1, "H1 h1 "],
-      [webcomp, "SHADOW-COMP#ROOT H1 h1 "],
-      [shadowSlotted, "SHADOW-COMP#ROOT H1 h1 "],
-      [simpleMatroschka, "MATROSCHKA-COMP MATROSCHKA-COMP#ROOT SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SLOT DIV div "],
-      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP DIV div "],
-      [nestedShadow, "SHADOW-COMP#ROOT H1 h1 "]
+      [h1, "H1 h1 ", newClick(BC)],
+      [webcomp, "SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp#root shadow-comp ", newClick(BC)],
+      [shadowSlotted, "DIV SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp#root shadow-comp slot span slot-comp#root slot-comp div ", newClick(BC)],
+      [simpleMatroschka, "MATROSCHKA-COMP MATROSCHKA-COMP#ROOT SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SLOT DIV div slot slot span slot-comp#root slot-comp matroschka-comp#root matroschka-comp ", newClick(BC)],
+      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP DIV div shadow-comp ", newClick(BC)],
+      [nestedShadow, "NESTED-SHADOW NESTED-SHADOW#ROOT B SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp#root shadow-comp b nested-shadow#root nested-shadow ", newClick(BC)],
+
+      [h1, "H1 h1 ", newClick(C)],
+      [webcomp, "SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp ", newClick(C)],
+      [shadowSlotted, "DIV SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp ", newClick(C)],
+      [simpleMatroschka, "MATROSCHKA-COMP MATROSCHKA-COMP#ROOT SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SLOT DIV div ", newClick(C)],
+      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP DIV div ", newClick(C)],
+      [nestedShadow, "NESTED-SHADOW NESTED-SHADOW#ROOT B SHADOW-COMP SHADOW-COMP#ROOT H1 h1 shadow-comp nested-shadow ", newClick(C)],
+
+      [h1, "H1 h1 ", newClick(B)],
+      [webcomp, "SHADOW-COMP#ROOT H1 h1 shadow-comp#root ", newClick(B)],
+      [shadowSlotted, "SHADOW-COMP#ROOT H1 h1 shadow-comp#root ", newClick(B)],
+      [simpleMatroschka, "MATROSCHKA-COMP MATROSCHKA-COMP#ROOT SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SLOT DIV div slot slot span slot-comp#root slot-comp matroschka-comp#root matroschka-comp ", newClick(B)],
+      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP DIV div shadow-comp ", newClick(B)],
+      [nestedShadow, "SHADOW-COMP#ROOT H1 h1 shadow-comp#root ", newClick(B)],
+
+      [h1, "H1 h1 ", newClick({})],
+      [webcomp, "SHADOW-COMP#ROOT H1 h1 ", newClick({})],
+      [shadowSlotted, "SHADOW-COMP#ROOT H1 h1 ", newClick({})],
+      [simpleMatroschka, "MATROSCHKA-COMP MATROSCHKA-COMP#ROOT SLOT-COMP SLOT-COMP#ROOT SPAN SLOT SLOT DIV div ", newClick({})],
+      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP DIV div ", newClick({})],
+      [nestedShadow, "SHADOW-COMP#ROOT H1 h1 ", newClick({})],
+
+      [h1, "H1 .h1 .", newClick(ABC)],
+      [webcomp, "SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root .shadow-comp .", newClick(ABC)],
+      [shadowSlotted, "DIV .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root .shadow-comp .slot .span .slot-comp#root .slot-comp .div .", newClick(ABC)],
+      [simpleMatroschka, "MATROSCHKA-COMP .MATROSCHKA-COMP#ROOT .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SLOT .DIV .div .slot .slot .span .slot-comp#root .slot-comp .matroschka-comp#root .matroschka-comp .", newClick(ABC)],
+      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP .DIV .div .shadow-comp .", newClick(ABC)],
+      [nestedShadow, "NESTED-SHADOW .NESTED-SHADOW#ROOT .B .SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root .shadow-comp .b .nested-shadow#root .nested-shadow .", newClick(ABC)],
+
+      [h1, "H1 .h1 .", newClick(AC)],
+      [webcomp, "SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp .", newClick(AC)],
+      [shadowSlotted, "DIV .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp .", newClick(AC)],
+      [simpleMatroschka, "MATROSCHKA-COMP .MATROSCHKA-COMP#ROOT .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SLOT .DIV .div .", newClick(AC)],
+      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP .DIV .div .", newClick(AC)],
+      [nestedShadow, "NESTED-SHADOW .NESTED-SHADOW#ROOT .B .SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp .nested-shadow .", newClick(AC)],
+
+      [h1, "H1 .h1 .", newClick(AB)],
+      [webcomp, "SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root .", newClick(AB)],
+      [shadowSlotted, "SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root .", newClick(AB)],
+      [simpleMatroschka, "MATROSCHKA-COMP .MATROSCHKA-COMP#ROOT .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SLOT .DIV .div .slot .slot .span .slot-comp#root .slot-comp .matroschka-comp#root .matroschka-comp .", newClick(AB)],
+      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP .DIV .div .shadow-comp .", newClick(AB)],
+      [nestedShadow, "SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root .", newClick(AB)],
+
+      [h1, "H1 .h1 .", newClick(A)],
+      [webcomp, "SHADOW-COMP#ROOT .H1 .h1 .", newClick(A)],
+      [shadowSlotted, "SHADOW-COMP#ROOT .H1 .h1 .", newClick(A)],
+      [simpleMatroschka, "MATROSCHKA-COMP .MATROSCHKA-COMP#ROOT .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SLOT .DIV .div .", newClick(A)],
+      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP .DIV .div .", newClick(A)],
+      [nestedShadow, "SHADOW-COMP#ROOT .H1 .h1 .", newClick(A)]
     ]);
-
-    await runTest2(eventSystems, propABC, [
-      [h1, "H1 .h1 ."],
-      [webcomp, "SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root .shadow-comp ."],
-      [shadowSlotted, "DIV .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root .shadow-comp .slot .span .slot-comp#root .slot-comp .div ."],
-      [simpleMatroschka, "MATROSCHKA-COMP .MATROSCHKA-COMP#ROOT .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SLOT .DIV .div .slot .slot .span .slot-comp#root .slot-comp .matroschka-comp#root .matroschka-comp ."],
-      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP .DIV .div .shadow-comp ."],
-      [nestedShadow, "NESTED-SHADOW .NESTED-SHADOW#ROOT .B .SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root .shadow-comp .b .nested-shadow#root .nested-shadow ."]
-    ]);
-
-    await runTest2(eventSystems, propAC, [
-      [h1, "H1 .h1 ."],
-      [webcomp, "SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp ."],
-      [shadowSlotted, "DIV .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp ."],
-      [simpleMatroschka, "MATROSCHKA-COMP .MATROSCHKA-COMP#ROOT .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SLOT .DIV .div ."],
-      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP .DIV .div ."],
-      [nestedShadow, "NESTED-SHADOW .NESTED-SHADOW#ROOT .B .SHADOW-COMP .SHADOW-COMP#ROOT .H1 .h1 .shadow-comp .nested-shadow ."]]);
-
-    await runTest2(eventSystems, propAB, [
-      [h1, "H1 .h1 ."],
-      [webcomp, "SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root ."],
-      [shadowSlotted, "SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root ."],
-      [simpleMatroschka, "MATROSCHKA-COMP .MATROSCHKA-COMP#ROOT .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SLOT .DIV .div .slot .slot .span .slot-comp#root .slot-comp .matroschka-comp#root .matroschka-comp ."],
-      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP .DIV .div .shadow-comp ."],
-      [nestedShadow, "SHADOW-COMP#ROOT .H1 .h1 .shadow-comp#root ."]]);
-
-    await runTest2(eventSystems, propA, [
-      [h1, "H1 .h1 ."],
-      [webcomp, "SHADOW-COMP#ROOT .H1 .h1 ."],
-      [shadowSlotted, "SHADOW-COMP#ROOT .H1 .h1 ."],
-      [simpleMatroschka, "MATROSCHKA-COMP .MATROSCHKA-COMP#ROOT .SLOT-COMP .SLOT-COMP#ROOT .SPAN .SLOT .SLOT .DIV .div ."],
-      [shadowCompWithExcludedLightDomDiv, "SHADOW-COMP .DIV .div ."],
-      [nestedShadow, "SHADOW-COMP#ROOT .H1 .h1 ."]]);
   })();
   //todo
   // 0. implement the systems using dependencies.

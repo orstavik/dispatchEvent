@@ -14,57 +14,21 @@ function addEventListeners(targets, res, async) {//todo push this into the useca
   }
 }
 
-function addListenersAndDispatchEvent(usecase, res, options) {
-  const targets = usecase().flat(Infinity);
-  addEventListeners(targets, res, options.async);
-  targets[0].dispatchEvent(new Event("click", options), options.async ? {async: true} : undefined);
-}
-
-export const propBC = {
-  name: `propagation: {composed: true, bubbles: true}`,
-  fun: function (res, usecase) {
-    addListenersAndDispatchEvent(usecase, res, {composed: true, bubbles: true});
-  }
-};
-export const propC = {
-  name: `propagation: {composed: true, bubbles: false}`,
-  fun: function (res, usecase) {
-    addListenersAndDispatchEvent(usecase, res, {composed: true, bubbles: false});
-  }
-};
-export const propB = {
-  name: `propagation: {composed: false, bubbles: true}`,
-  fun: function (res, usecase) {
-    addListenersAndDispatchEvent(usecase, res, {composed: false, bubbles: true});
-  }
-};
 export const prop = {
-  name: `propagation: {composed: false, bubbles: false`,
-  fun: function (res, usecase) {
-    addListenersAndDispatchEvent(usecase, res, {composed: false, bubbles: false});
+  name: `prop: `,
+  fun: function (res, usecase, event) {
+    const targets = usecase().flat(Infinity);
+    addEventListeners(targets, res, event.async);
+    targets[0].dispatchEvent(event);
   }
 };
-export const propABC  = {
-  name: `propagation: {async: true, composed: true, bubbles: true}`,
-  fun: function (res, usecase) {
-    addListenersAndDispatchEvent(usecase, res, {async: true, composed: true, bubbles: true});
-  }
-};
-export const propAC = {
-  name: `propagation: {async: true, composed: true, bubbles: false}`,
-  fun: function (res, usecase) {
-    addListenersAndDispatchEvent(usecase, res, {async: true, composed: true, bubbles: false});
-  }
-};
-export const propAB = {
-  name: `propagation: {async: true, composed: false, bubbles: true}`,
-  fun: function (res, usecase) {
-    addListenersAndDispatchEvent(usecase, res, {async: true, composed: false, bubbles: true});
-  }
-};
-export const propA = {
-  name: `propagation: {async: true, composed: false, bubbles: false`,
-  fun: function (res, usecase) {
-    addListenersAndDispatchEvent(usecase, res, {async: true, composed: false, bubbles: false});
+
+export const dispatchEventTwice = {
+  name: "dispatchEventTwice: ",
+  fun: function(res, usecase, event){
+    const targets = usecase().flat(Infinity);
+    targets[0].addEventListener(event.type, e=> res.push(e.type + " "));
+    targets[0].dispatchEvent(event);
+    targets[0].dispatchEvent(event);
   }
 };
