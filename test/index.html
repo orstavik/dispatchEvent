@@ -219,7 +219,8 @@
     ]);
   })();
   //todo
-  // 0. implement the systems using dependencies.
+  // 0. test for errors when dispatching. Trigger all the Error events.
+  //x. test what happens when we call a once event listener for click event, and then dispatch a new click event on the same target from that event listener.
   // 1. test stopPropagation thoroughly
   // 2. perform the same check outside in the dispatchEvent loop as is done inside in the scopedStop wrappers.
   //this is redundant.. we could have a wrapper method for that one..

@@ -1,8 +1,8 @@
 import {computePropagationPath, scopedPaths} from "./computePaths.js";
 import {
-  addGetEventListeners_allOptions,
-  removeGetEventListeners_allOptions
-} from "https://cdn.jsdelivr.net/gh/orstavik/getEventListeners@1.1.2/src/getEventListeners_allOptions.js";
+  upgradeAddEventListener,
+  downgradeAddEventListener
+} from "https://cdn.jsdelivr.net/gh/orstavik/getEventListeners@1.2.0/src/runEventListener.js";
 import {
   initEvent as initCustomDefaultActions,
   prepareDefaultActions,
@@ -10,7 +10,11 @@ import {
 } from "https://cdn.jsdelivr.net/gh/orstavik/nativeDefaultActions@1.2.0/src/getCustomDefaultActions.js";
 import {} from "https://cdn.jsdelivr.net/gh/orstavik/nextTick@1/src/nextTick.js";
 
-let isStopped, getEventListeners;
+let getEventListeners;
+let clearStopPropagationStateAtTheStartOfDispatchEvent;
+let runEventListener;
+let patchEventInitialState;
+let patchEventListenerState;
 
 function dispatchErrorEvent(error, message) {
   const event = new ErrorEvent('error', {error, message});
@@ -50,6 +54,8 @@ function initEvent(event, target) {
   if (event.isTrusted)
     event = reuseIsTrustedEvents(event);
 
+  clearStopPropagationStateAtTheStartOfDispatchEvent(event);
+  patchEventInitialState(event);
   //we need to freeze the composedPath at the point of first dispatch
   const fullPath = computePropagationPath(target, event.composed, event.bubbles, event.cutOff);
   const composedPath = scopedPaths(target, event.composed).flat(Infinity);
@@ -175,14 +181,23 @@ async function dispatchEventASync(event, fullPath) {
 let dispatchEventOG;
 
 export function addDispatchEventOptionAsyncWithDependencies() {
-  const {isStopped: is, getEventListeners: gel} = addGetEventListeners_allOptions();
-  isStopped = is;
+  const {
+    getEventListeners: gel,
+    clearStopPropagationStateAtTheStartOfDispatchEvent: clearStop,
+    runEventListener: runel,
+    patchEventInitialState: patch1,
+    patchEventListenerState: patch2
+  } = upgradeAddEventListener();
   getEventListeners = gel;
+  clearStopPropagationStateAtTheStartOfDispatchEvent = clearStop;
+  runEventListener = runel;
+  patchEventInitialState = patch1;
+  patchEventListenerState = patch2;
   dispatchEventOG = Object.getOwnPropertyDescriptor(EventTarget.prototype, "dispatchEvent");
   Object.defineProperty(EventTarget.prototype, "dispatchEvent", {value: dispatchEvent});
 }
 
 export function removeDispatchEventOptionAsyncWithDependencies() {
   Object.defineProperty(EventTarget.prototype, "dispatchEvent", dispatchEventOG);
-  removeGetEventListeners_allOptions();
+  downgradeAddEventListener();
 }
