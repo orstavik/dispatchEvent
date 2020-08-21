@@ -1,14 +1,14 @@
 import {computePropagationPath, scopedPaths} from "./computePaths.js";
 import {
-  upgradeAddEventListener,
-  downgradeAddEventListener
+  downgradeAddEventListener,
+  upgradeAddEventListener
 } from "https://cdn.jsdelivr.net/gh/orstavik/getEventListeners@1.2.0/src/runEventListener.js";
 import {
   initEvent as initCustomDefaultActions,
   prepareDefaultActions,
   resetEvent as resetCustomDefaultActions
 } from "https://cdn.jsdelivr.net/gh/orstavik/nativeDefaultActions@1.2.0/src/getCustomDefaultActions.js";
-import {} from "https://cdn.jsdelivr.net/gh/orstavik/nextTick@1/src/nextTick.js";
+import {macrotask} from "https://cdn.jsdelivr.net/gh/orstavik/nextTick@1.1.0/src/nextTick_es6.js";
 
 let getEventListeners;
 let clearStopPropagationStateAtTheStartOfDispatchEvent;
@@ -16,32 +16,13 @@ let runEventListener;
 let patchEventInitialState;
 let patchEventListenerState;
 
-function dispatchErrorEvent(error, message) {
-  const event = new ErrorEvent('error', {error, message});
-  window.dispatchEvent(event);//sync event!
-  !event.defaultPrevented && console.error(event);
-}
-
-function runListener(target, listener, event) {
-  if (listener.removed)
-    return;
-  if (event.cancelBubble === 1 && !listener.unstoppable)
-    return;
-  try {
-    const cb = listener.listener;
-    cb instanceof Function ? cb.call(target, event) : cb.handleEvent(event);
-  } catch (error) {
-    dispatchErrorEvent(error, 'Uncaught Error: event listener break down');
-  } finally {
-    listener.once && target.removeEventListener(listener.type, listener.listener, listener.capture);
-  }
-}
-
 function runDefaultAction(task) {
   try {
     task();
   } catch (error) {
-    dispatchErrorEvent(error, 'Uncaught Error: default action break down');
+    const event = new ErrorEvent('error', {error, message: 'Uncaught Error: default action break down'});
+    window.dispatchEvent(event);//sync event!
+    !event.defaultPrevented && console.error(event);
   }
 }
 
@@ -152,7 +133,7 @@ function dispatchEventSync(event, fullPath) {
       continue;
     updateEvent(event, target, phase);
     for (let listener of listeners)
-      runListener(target, listener, event);
+      runEventListener(target, event, listener);
   }
   const tasks = prepareDefaultActions(event);
   for (let task of tasks)
@@ -160,8 +141,7 @@ function dispatchEventSync(event, fullPath) {
 }
 
 async function dispatchEventASync(event, fullPath) {
-  let macrotask = nextMesoTicks([function () {
-  }], fullPath.length + 2);//todo fix mesotasks
+  let macro = macrotask(fullPath.length + 1);
 
   for (let {target, phase, listenerPhase} of fullPath) {
     let listeners = getEventListeners(target, event.type, listenerPhase);
@@ -170,12 +150,12 @@ async function dispatchEventASync(event, fullPath) {
     if (!listeners.length)
       continue;
     updateEvent(event, target, phase);
-    const cbs = listeners.map(listener => runListener.bind(null, target, listener, event));
-    await macrotask.nextMesoTick(cbs);
+    const cbs = listeners.map(listener => runEventListener.bind(null, target, event,  listener));
+    await macro.ticks(cbs);
   }
   const tasks = prepareDefaultActions(event);
   const cbs = tasks.map(task => runDefaultAction.bind(null, task));
-  cbs.length && await macrotask.nextMesoTick(cbs);
+  cbs.length && await macro.ticks(cbs);
 }
 
 let dispatchEventOG;
